@@ -102,7 +102,7 @@ class ThumbnailsView {
     func clearLayoutCache() {
         cachedLayoutKey = ""
         cachedLayoutComplete = false
-        PerfLogger.log("ThumbnailsView: Layout cache cleared")
+        Logger.perf("ThumbnailsView: Layout cache cleared")
     }
     
     func updateItemsAndLayout() {
@@ -111,17 +111,17 @@ class ThumbnailsView {
         let cacheMatches = layoutKey == cachedLayoutKey
         
         if cacheMatches && cachedLayoutComplete {
-            PerfLogger.log("Layout cache HIT - skipping ALL layout operations")
+            Logger.cacheHit("Layout", details: "skipping ALL layout operations")
             highlightStartView()
             return
         }
         
         if !cacheMatches {
-            PerfLogger.log("Layout cache MISS - key changed")
-            PerfLogger.log("  Old key hash: \(cachedLayoutKey.hashValue)")
-            PerfLogger.log("  New key hash: \(layoutKey.hashValue)")
+            Logger.cacheMiss("Layout", reason: "key changed")
+            Logger.perf("  Old key hash: \(cachedLayoutKey.hashValue)")
+            Logger.perf("  New key hash: \(layoutKey.hashValue)")
         } else {
-            PerfLogger.log("Layout cache MISS - no cached result")
+            Logger.cacheMiss("Layout", reason: "no cached result")
         }
         
         cachedLayoutComplete = false
@@ -225,8 +225,7 @@ class ThumbnailsView {
             view.frame.origin = origin
         }
         CATransaction.commit()
-        let batchElapsed = Double(DispatchTime.now().uptimeNanoseconds - batchStart.uptimeNanoseconds) / 1_000_000
-        PerfLogger.log("Batched \(frameOrigins.count) frame origin updates in \(String(format: "%.2f", batchElapsed))ms")
+        Logger.perf("Batched \(frameOrigins.count) frame origin updates in \(String(format: "%.2f", Double(DispatchTime.now().uptimeNanoseconds - batchStart.uptimeNanoseconds) / 1_000_000))ms")
         
         scrollView.documentView!.subviews = newViews
         return (maxX, maxY, labelHeight)

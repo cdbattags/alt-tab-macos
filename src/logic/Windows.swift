@@ -55,7 +55,7 @@ class Windows {
         previewDebounceTimer?.invalidate()
         previewDebounceTimer = nil
         pendingPreviewWindow = nil
-        PerfLogger.log("Windows: Preview cache cleared")
+        Logger.perf("Windows: Preview cache cleared")
     }
     
     static func previewSelectedWindowIfNeeded() {
@@ -88,7 +88,7 @@ class Windows {
                     lastPreviewWindowId = id
                     lastPreviewShown = true
                     pendingPreviewWindow = nil
-                    PerfLogger.log("Preview: Shown after geometry settled (id=\(id))")
+                    Logger.perf("Preview: Shown after geometry settled (id=\(id))")
                 }
             } else if !lastPreviewShown {
                 // Same window, just needs to be shown (no debounce needed)
@@ -130,71 +130,57 @@ class Windows {
     }
 
     static func updatesBeforeShowing() -> Bool {
-        let overallStart = DispatchTime.now()
-        PerfLogger.log("===== updatesBeforeShowing START =====")
+        return Logger.section("updatesBeforeShowing") { section in
+            if list.count == 0 || MissionControl.state() == .showAllWindows || MissionControl.state() == .showFrontWindows { return false }
+            
+            section.log("Processing \(list.count) windows")
         
-        if list.count == 0 || MissionControl.state() == .showAllWindows || MissionControl.state() == .showFrontWindows { return false }
+            // TODO: find a way to update space info when spaces are changed, instead of on every trigger
+            // workaround: when Preferences > Mission Control > "Displays have separate Spaces" is unchecked,
+            // switching between displays doesn't trigger .activeSpaceDidChangeNotification; we get the latest manually
+            section.step("Spaces.refresh") { Spaces.refresh() }
         
-        PerfLogger.log("updatesBeforeShowing: Processing \(list.count) windows")
-        
-        // TODO: find a way to update space info when spaces are changed, instead of on every trigger
-        // workaround: when Preferences > Mission Control > "Displays have separate Spaces" is unchecked,
-        // switching between displays doesn't trigger .activeSpaceDidChangeNotification; we get the latest manually
-        var stepStart = DispatchTime.now()
-        Spaces.refresh()
-        var elapsed = Double(DispatchTime.now().uptimeNanoseconds - stepStart.uptimeNanoseconds) / 1_000_000
-        PerfLogger.log("updatesBeforeShowing: Spaces.refresh took \(String(format: "%.2f", elapsed))ms")
-        
-        let spaceIdsAndIndexes = Spaces.idsAndIndexes.map { $0.0 }
-        lazy var cgsWindowIds = Spaces.windowsInSpaces(spaceIdsAndIndexes)
-        lazy var visibleCgsWindowIds = Spaces.windowsInSpaces(spaceIdsAndIndexes, false)
-        
-        stepStart = DispatchTime.now()
-        var updatedCount = 0
-        var skippedCount = 0
-        for window in list {
-            // Performance optimization: Only update windows that need updating
-            // see https://github.com/lwouis/alt-tab-macos/issues/5177
-            var needsUpdate = false
-            if window.needsTabDetection {
-                detectTabbedWindows(window, cgsWindowIds, visibleCgsWindowIds)
-                window.needsTabDetection = false
-                needsUpdate = true
+            let spaceIdsAndIndexes = Spaces.idsAndIndexes.map { $0.0 }
+            lazy var cgsWindowIds = Spaces.windowsInSpaces(spaceIdsAndIndexes)
+            lazy var visibleCgsWindowIds = Spaces.windowsInSpaces(spaceIdsAndIndexes, false)
+            
+            var updatedCount = 0
+            var skippedCount = 0
+            section.step("Window loop") {
+                for window in list {
+                    // Performance optimization: Only update windows that need updating
+                    // see https://github.com/lwouis/alt-tab-macos/issues/5177
+                    var needsUpdate = false
+                    if window.needsTabDetection {
+                        detectTabbedWindows(window, cgsWindowIds, visibleCgsWindowIds)
+                        window.needsTabDetection = false
+                        needsUpdate = true
+                    }
+                    if window.needsSpaceUpdate {
+                        window.updateSpacesAndScreen()
+                        window.needsSpaceUpdate = false
+                        needsUpdate = true
+                    }
+                    if window.needsVisibilityUpdate {
+                        refreshIfWindowShouldBeShownToTheUser(window)
+                        window.needsVisibilityUpdate = false
+                        needsUpdate = true
+                    }
+                    if needsUpdate {
+                        updatedCount += 1
+                    } else {
+                        skippedCount += 1
+                    }
+                }
             }
-            if window.needsSpaceUpdate {
-                window.updateSpacesAndScreen()
-                window.needsSpaceUpdate = false
-                needsUpdate = true
-            }
-            if window.needsVisibilityUpdate {
-                refreshIfWindowShouldBeShownToTheUser(window)
-                window.needsVisibilityUpdate = false
-                needsUpdate = true
-            }
-            if needsUpdate {
-                updatedCount += 1
-            } else {
-                skippedCount += 1
-            }
+            section.log("Window loop: updated: \(updatedCount), skipped: \(skippedCount)")
+        
+            section.step("refreshWhichWindowsToShowTheUser") { refreshWhichWindowsToShowTheUser() }
+            section.step("sort") { sort() }
+            
+            if (!list.contains { $0.shouldShowTheUser }) { return false }
+            return true
         }
-        elapsed = Double(DispatchTime.now().uptimeNanoseconds - stepStart.uptimeNanoseconds) / 1_000_000
-        PerfLogger.log("updatesBeforeShowing: Window loop took \(String(format: "%.2f", elapsed))ms (updated: \(updatedCount), skipped: \(skippedCount))")
-        
-        stepStart = DispatchTime.now()
-        refreshWhichWindowsToShowTheUser()
-        elapsed = Double(DispatchTime.now().uptimeNanoseconds - stepStart.uptimeNanoseconds) / 1_000_000
-        PerfLogger.log("updatesBeforeShowing: refreshWhichWindowsToShowTheUser took \(String(format: "%.2f", elapsed))ms")
-        
-        stepStart = DispatchTime.now()
-        sort()
-        elapsed = Double(DispatchTime.now().uptimeNanoseconds - stepStart.uptimeNanoseconds) / 1_000_000
-        PerfLogger.log("updatesBeforeShowing: sort took \(String(format: "%.2f", elapsed))ms")
-        
-        let overallElapsed = Double(DispatchTime.now().uptimeNanoseconds - overallStart.uptimeNanoseconds) / 1_000_000
-        PerfLogger.log("===== updatesBeforeShowing TOTAL: \(String(format: "%.2f", overallElapsed))ms =====")
-        
-        if (!list.contains { $0.shouldShowTheUser }) { return false }
-        return true
     }
 
     // dispatch screenshot requests off the main-thread, then wait for completion
@@ -221,7 +207,7 @@ class Windows {
     static func refreshWhichWindowsToShowTheUser() {
         let appsToShowSetting = Preferences.appsToShow[App.app.shortcutIndex]
         let frontmostPid = NSWorkspace.shared.frontmostApplication?.processIdentifier
-        PerfLogger.log("refreshWhichWindowsToShowTheUser: shortcutIndex=\(App.app.shortcutIndex), appsToShow=\(appsToShowSetting), frontmostPid=\(frontmostPid ?? -1)")
+        Logger.perf("refreshWhichWindowsToShowTheUser: shortcutIndex=\(App.app.shortcutIndex), appsToShow=\(appsToShowSetting), frontmostPid=\(frontmostPid ?? -1)")
         
         // For shortcut 0 (cmd+tab): Show one window per app for quick app switching
         // For other shortcuts: Show all windows (already filtered by appsToShow)
@@ -239,13 +225,13 @@ class Windows {
                     if let cachedId = cachedMainWindowId, let cached = windows.first(where: { $0.cgWindowId == cachedId }) {
                         // Use cached main window if it still exists
                         mainWindow = cached
-                        PerfLogger.log("Main window cache HIT for pid \(pid)")
+                        Logger.cacheHit("Main window", details: "pid \(pid)")
                     } else {
                         // Cache miss - find main window (expensive)
                         mainWindow = findMainWindowSimple(windows)
                         if let mainWindowId = mainWindow?.cgWindowId {
                             mainWindowCache[pid] = mainWindowId
-                            PerfLogger.log("Main window cache MISS for pid \(pid) - cached \(mainWindowId)")
+                            Logger.cacheMiss("Main window", reason: "pid \(pid) - cached \(mainWindowId)")
                         }
                     }
                     
@@ -261,7 +247,7 @@ class Windows {
         }
         
         let visibleCount = list.filter { $0.shouldShowTheUser }.count
-        PerfLogger.log("refreshWhichWindowsToShowTheUser: showing \(visibleCount) of \(list.count) windows (onePerApp: \(shouldShowOnePerApp))")
+        Logger.perf("refreshWhichWindowsToShowTheUser: showing \(visibleCount) of \(list.count) windows (onePerApp: \(shouldShowOnePerApp))")
     }
 
     private static func refreshIfWindowShouldBeShownToTheUser(_ window: Window) {
@@ -365,8 +351,7 @@ class Windows {
     }
 
     static func updateSelectedAndHoveredWindowIndex(_ newIndex: Int, _ fromMouse: Bool = false) {
-        let start = DispatchTime.now()
-        PerfLogger.log("updateSelectedAndHoveredWindowIndex: START")
+        Logger.section("updateSelectedAndHoveredWindowIndex") { section in
         
         var index: Int?
         if fromMouse && (newIndex != hoveredWindowIndex || lastWindowActivityType == .focus) {
@@ -384,60 +369,40 @@ class Windows {
             selectedWindowIndex = newIndex
             selectedWindowTarget = list[newIndex].id
             
-            var stepStart = DispatchTime.now()
-            ThumbnailsView.highlight(oldIndex)
-            var stepElapsed = Double(DispatchTime.now().uptimeNanoseconds - stepStart.uptimeNanoseconds) / 1_000_000
-            PerfLogger.log("updateSelected: highlight(old) took \(String(format: "%.2f", stepElapsed))ms")
-            
-            stepStart = DispatchTime.now()
-            previewSelectedWindowIfNeeded()
-            stepElapsed = Double(DispatchTime.now().uptimeNanoseconds - stepStart.uptimeNanoseconds) / 1_000_000
-            PerfLogger.log("updateSelected: previewSelectedWindowIfNeeded took \(String(format: "%.2f", stepElapsed))ms")
+            section.step("highlight(old)") { ThumbnailsView.highlight(oldIndex) }
+            section.step("previewSelectedWindowIfNeeded") { previewSelectedWindowIfNeeded() }
             
             index = selectedWindowIndex
             lastWindowActivityType = .focus
         }
         guard let index else { return }
         
-        var stepStart = DispatchTime.now()
-        ThumbnailsView.highlight(index)
-        var stepElapsed = Double(DispatchTime.now().uptimeNanoseconds - stepStart.uptimeNanoseconds) / 1_000_000
-        PerfLogger.log("updateSelected: highlight(new) took \(String(format: "%.2f", stepElapsed))ms")
-        
-        let focusedView = ThumbnailsView.recycledViews[index]
-        
-        stepStart = DispatchTime.now()
-        App.app.thumbnailsPanel.thumbnailsView.scrollView.contentView.scrollToVisible(focusedView.frame)
-        stepElapsed = Double(DispatchTime.now().uptimeNanoseconds - stepStart.uptimeNanoseconds) / 1_000_000
-        PerfLogger.log("updateSelected: scrollToVisible took \(String(format: "%.2f", stepElapsed))ms")
-        
-        stepStart = DispatchTime.now()
-        voiceOverWindow(index)
-        stepElapsed = Double(DispatchTime.now().uptimeNanoseconds - stepStart.uptimeNanoseconds) / 1_000_000
-        PerfLogger.log("updateSelected: voiceOverWindow took \(String(format: "%.2f", stepElapsed))ms")
-        
-        let totalElapsed = Double(DispatchTime.now().uptimeNanoseconds - start.uptimeNanoseconds) / 1_000_000
-        PerfLogger.log("updateSelectedAndHoveredWindowIndex TOTAL: \(String(format: "%.2f", totalElapsed))ms")
+            section.step("highlight(new)") { ThumbnailsView.highlight(index) }
+            
+            let focusedView = ThumbnailsView.recycledViews[index]
+            
+            section.step("scrollToVisible") {
+                App.app.thumbnailsPanel.thumbnailsView.scrollView.contentView.scrollToVisible(focusedView.frame)
+            }
+            
+            section.step("voiceOverWindow") { voiceOverWindow(index) }
+        }
     }
 
     static func cycleSelectedWindowIndex(_ step: Int, allowWrap: Bool = true) {
-        let start = DispatchTime.now()
-        PerfLogger.log("===== cycleSelectedWindowIndex: Tab pressed, step=\(step) =====")
-        
-        guard App.app.appIsBeingUsed else { return }
-        let nextIndex = selectedWindowIndexAfterCycling(step)
-        // don't wrap-around at the end, if key-repeat
-        if (((step > 0 && nextIndex < selectedWindowIndex) || (step < 0 && nextIndex > selectedWindowIndex)) &&
-            (!allowWrap || ATShortcut.lastEventIsARepeat || !KeyRepeatTimer.timerIsSuspended))
-               // don't cycle to another row, if !allowWrap
-               || (!allowWrap && list[nextIndex].rowIndex != list[selectedWindowIndex].rowIndex) {
-            PerfLogger.log("cycleSelectedWindowIndex: Skipped (constraints)")
-            return
+        Logger.section("cycleSelectedWindowIndex: Tab pressed, step=\(step)") { section in
+            guard App.app.appIsBeingUsed else { return }
+            let nextIndex = selectedWindowIndexAfterCycling(step)
+            // don't wrap-around at the end, if key-repeat
+            if (((step > 0 && nextIndex < selectedWindowIndex) || (step < 0 && nextIndex > selectedWindowIndex)) &&
+                (!allowWrap || ATShortcut.lastEventIsARepeat || !KeyRepeatTimer.timerIsSuspended))
+                   // don't cycle to another row, if !allowWrap
+                   || (!allowWrap && list[nextIndex].rowIndex != list[selectedWindowIndex].rowIndex) {
+                section.log("Skipped (constraints)")
+                return
+            }
+            updateSelectedAndHoveredWindowIndex(nextIndex)
         }
-        updateSelectedAndHoveredWindowIndex(nextIndex)
-        
-        let elapsed = Double(DispatchTime.now().uptimeNanoseconds - start.uptimeNanoseconds) / 1_000_000
-        PerfLogger.log("===== cycleSelectedWindowIndex TOTAL: \(String(format: "%.2f", elapsed))ms =====")
     }
 
     static func selectedWindowIndexAfterCycling(_ step: Int) -> Int {

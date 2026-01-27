@@ -96,12 +96,12 @@ class ThumbnailsPanel: NSPanel {
     static func maxThumbnailsWidth(_ screen: NSScreen = NSScreen.preferred) -> CGFloat {
         // Check cache first
         if let uuid = screen.uuid(), let cached = cachedScreenDimensions[uuid] {
-            PerfLogger.log("Screen dimensions cache HIT for display \(uuid)")
+            Logger.cacheHit("Screen dimensions", details: "display \(uuid)")
             return cached.width
         }
         
         // Calculate and cache
-        PerfLogger.log("Screen dimensions cache MISS - calculating for display \(screen.uuid() ?? "unknown" as CFString)")
+        Logger.cacheMiss("Screen dimensions", reason: "calculating for display \(screen.uuid() ?? "unknown" as CFString)")
         let width: CGFloat
         if Preferences.appearanceStyle == .titles,
            let readableWidth = ThumbnailView.widthOfComfortableReadability() {
@@ -137,7 +137,7 @@ class ThumbnailsPanel: NSPanel {
     
     static func clearScreenDimensionCache() {
         cachedScreenDimensions.removeAll()
-        PerfLogger.log("ThumbnailsPanel: Screen dimension cache cleared (\(cachedScreenDimensions.count) entries)")
+        Logger.perf("ThumbnailsPanel: Screen dimension cache cleared (\(cachedScreenDimensions.count) entries)")
     }
 
     static func updateMaxPossibleThumbnailSize() {
