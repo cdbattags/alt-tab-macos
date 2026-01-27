@@ -6,6 +6,9 @@ class Windows {
     static var selectedWindowTarget: String?
     static var hoveredWindowIndex: Int?
     private static var lastWindowActivityType = WindowActivityType.none
+    
+    // Cache for main window per app (cleared when window list changes significantly)
+    private static var mainWindowCache = [Int32: CGWindowID?]()
 
     static func updateIsFullscreenOnCurrentSpace() {
         let windowsOnCurrentSpace = list.filter { !$0.isWindowlessApp }
@@ -216,19 +219,49 @@ class Windows {
     }
 
     static func refreshWhichWindowsToShowTheUser() {
-        if Preferences.onlyShowApplications() {
+        let appsToShowSetting = Preferences.appsToShow[App.app.shortcutIndex]
+        let frontmostPid = NSWorkspace.shared.frontmostApplication?.processIdentifier
+        PerfLogger.log("refreshWhichWindowsToShowTheUser: shortcutIndex=\(App.app.shortcutIndex), appsToShow=\(appsToShowSetting), frontmostPid=\(frontmostPid ?? -1)")
+        
+        // For shortcut 0 (cmd+tab): Show one window per app for quick app switching
+        // For other shortcuts: Show all windows (already filtered by appsToShow)
+        let shouldShowOnePerApp = App.app.shortcutIndex == 0 || Preferences.onlyShowApplications()
+        
+        if shouldShowOnePerApp {
             // Group windows by application and select the optimal main window
             let windowsGroupedByApp = Dictionary(grouping: list) { $0.application.pid }
-            windowsGroupedByApp.forEach { (app, windows) in
-                if windows.count > 1, let mainWindow = findMainWindow(windows) {
-                    windows.forEach { window in
-                        if window.cgWindowId != mainWindow.cgWindowId {
-                            window.shouldShowTheUser = false
+            windowsGroupedByApp.forEach { (pid, windows) in
+                if windows.count > 1 {
+                    // Check cache first
+                    let cachedMainWindowId = mainWindowCache[pid]
+                    let mainWindow: Window?
+                    
+                    if let cachedId = cachedMainWindowId, let cached = windows.first(where: { $0.cgWindowId == cachedId }) {
+                        // Use cached main window if it still exists
+                        mainWindow = cached
+                        PerfLogger.log("Main window cache HIT for pid \(pid)")
+                    } else {
+                        // Cache miss - find main window (expensive)
+                        mainWindow = findMainWindowSimple(windows)
+                        if let mainWindowId = mainWindow?.cgWindowId {
+                            mainWindowCache[pid] = mainWindowId
+                            PerfLogger.log("Main window cache MISS for pid \(pid) - cached \(mainWindowId)")
+                        }
+                    }
+                    
+                    if let mainWindow = mainWindow {
+                        windows.forEach { window in
+                            if window.cgWindowId != mainWindow.cgWindowId {
+                                window.shouldShowTheUser = false
+                            }
                         }
                     }
                 }
             }
         }
+        
+        let visibleCount = list.filter { $0.shouldShowTheUser }.count
+        PerfLogger.log("refreshWhichWindowsToShowTheUser: showing \(visibleCount) of \(list.count) windows (onePerApp: \(shouldShowOnePerApp))")
     }
 
     private static func refreshIfWindowShouldBeShownToTheUser(_ window: Window) {
@@ -251,6 +284,22 @@ class Windows {
                 (Preferences.showTabsAsWindows || !window.isTabbed))
     }
 
+    /// Fast version of findMainWindow that avoids expensive AX calls
+    /// Uses simple heuristics: focused window > most recently focused > first visible
+    static func findMainWindowSimple(_ windows: [Window]) -> Window? {
+        let visibleWindows = windows.filter { $0.shouldShowTheUser }
+        if visibleWindows.isEmpty { return nil }
+        
+        // Prefer the focused window
+        if let focusedWindowId = windows.first?.application.focusedWindow?.cgWindowId,
+           let focusedWindow = visibleWindows.first(where: { $0.cgWindowId == focusedWindowId }) {
+            return focusedWindow
+        }
+        
+        // Prefer most recently focused window (lowest lastFocusOrder)
+        return visibleWindows.min(by: { $0.lastFocusOrder < $1.lastFocusOrder })
+    }
+    
     /// Selects the most appropriate main window from a given list of windows.
     ///
     /// The selection criteria are as follows:

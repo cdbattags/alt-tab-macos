@@ -56,8 +56,17 @@ class ATShortcut {
 
     func shouldTrigger() -> Bool {
         if scope == .global {
-            if triggerPhase == .down && (!App.app.appIsBeingUsed || index == nil || index == App.app.shortcutIndex) {
-                return true
+            if triggerPhase == .down {
+                // Allow triggering when:
+                // 1. UI is not open yet, OR
+                // 2. Shortcut has no index (nextWindowShortcut), OR  
+                // 3. Shortcut has an index but we're not checking it strictly (for switching)
+                // But ONLY allow nextWindowShortcut to switch, not holdShortcut
+                if !App.app.appIsBeingUsed || index == nil {
+                    return true
+                }
+                // Don't allow holdShortcut with wrong index to trigger
+                return false
             }
             if triggerPhase == .up && App.app.appIsBeingUsed && (index == nil || index == App.app.shortcutIndex) && !App.app.forceDoNothingOnRelease && Preferences.shortcutStyle[App.app.shortcutIndex] == .focusOnRelease {
                 return true
