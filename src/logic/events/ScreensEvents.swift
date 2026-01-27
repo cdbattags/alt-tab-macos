@@ -14,6 +14,9 @@ class ScreensEvents {
             Logger.debug { notification.name.rawValue }
             Spaces.refresh()
             Screens.refresh()
+            // Performance optimization: Clear screen dimension cache on configuration change
+            // see https://github.com/lwouis/alt-tab-macos/issues/5177
+            ThumbnailsPanel.clearScreenDimensionCache()
             // a screen added or removed, or screen resolution change can mess up layout; we reset components
             App.app.resetPreferencesDependentComponents()
         }

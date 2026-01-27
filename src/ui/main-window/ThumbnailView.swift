@@ -572,6 +572,10 @@ class ThumbnailView: FlippedView {
         let frameWidth = (contentWidth + Appearance.edgeInsetsSize * 2).rounded()
         let widthMin = ThumbnailView.minThumbnailWidth()
         let width = max(frameWidth, widthMin).rounded()
+        
+        // Cache this width on the window for layout stability
+        window_?.cachedThumbnailWidth = width
+        
         assignIfDifferent(&frame.size.width, width)
         assignIfDifferent(&frame.size.height, newHeight)
     }

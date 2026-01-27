@@ -35,9 +35,26 @@ class Window {
     var application: Application
     var axObserver: AXObserver?
     var rowIndex: Int?
+    
+    // Performance optimization: Dirty flags for incremental updates
+    // see https://github.com/lwouis/alt-tab-macos/issues/5177
+    var needsSpaceUpdate = true
+    var needsTabDetection = true
+    var needsVisibilityUpdate = true
+    
+    // Performance optimization: Cache calculated thumbnail width to prevent layout shifts
+    // This ensures width stays stable even if thumbnail frame is transitioning
+    // see https://github.com/lwouis/alt-tab-macos/issues/5177
+    var cachedThumbnailWidth: CGFloat?
 
     func debugId() -> String {
         return "\(application.debugId()) (wid:\(cgWindowId) title:\(title))"
+    }
+    
+    func markDirty() {
+        needsSpaceUpdate = true
+        needsTabDetection = true
+        needsVisibilityUpdate = true
     }
 
     init(_ axUiElement: AXUIElement, _ application: Application, _ wid: CGWindowID, _ title: String?, _ isFullscreen: Bool?, _ isMinimized: Bool?, _ position: CGPoint?, _ size: CGSize?) {
@@ -72,11 +89,22 @@ class Window {
     }
 
     func updateFromAxAttributes(_ title: String?, _ size: CGSize?, _ position: CGPoint?, _ isFullscreen: Bool?, _ isMinimized: Bool?) {
+        let titleChanged = self.title != bestEffortTitle(title)
+        let sizeChanged = self.size != size
+        let positionChanged = self.position != position
+        let fullscreenChanged = self.isFullscreen != (isFullscreen ?? false)
+        let minimizedChanged = self.isMinimized != (isMinimized ?? false)
+        
         self.title = bestEffortTitle(title)
         self.size = size
         self.position = position
         self.isFullscreen = isFullscreen ?? false
         self.isMinimized = isMinimized ?? false
+        
+        // Mark dirty if anything changed
+        if titleChanged || sizeChanged || positionChanged || fullscreenChanged || minimizedChanged {
+            markDirty()
+        }
     }
 
     func isEqualRobust(_ otherWindowAxUiElement: AXUIElement, _ otherWindowWid: CGWindowID?) -> Bool {

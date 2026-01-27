@@ -71,6 +71,8 @@ class App: AppCenterApplication {
         }
         hideAllTooltips()
         MainMenu.toggle(enabled: true)
+        // Schedule cache expiration after idle timeout
+        CacheManager.uiDidHide()
     }
 
     /// some tooltips may not be hidden when the main window is hidden; we force it through a private API
@@ -291,6 +293,8 @@ class App: AppCenterApplication {
 
     func buildUiAndShowPanel() {
         guard appIsBeingUsed else { return }
+        // Cancel cache expiration since UI is now active
+        CacheManager.uiDidShow()
         Appearance.update()
         guard appIsBeingUsed else { return }
         refreshOpenUi([], .showUi)

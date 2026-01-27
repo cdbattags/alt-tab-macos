@@ -47,6 +47,7 @@ class Preferences {
         "showTabsAsWindows": "false",
         "hideColoredCircles": "false",
         "windowDisplayDelay": "100",
+        "cacheExpirationSeconds": "60",
         "appearanceStyle": AppearanceStylePreference.thumbnails.indexAsString,
         "appearanceSize": AppearanceSizePreference.medium.indexAsString,
         "appearanceTheme": AppearanceThemePreference.system.indexAsString,
@@ -115,6 +116,7 @@ class Preferences {
     static var showTabsAsWindows: Bool { CachedUserDefaults.bool("showTabsAsWindows") }
     static var hideColoredCircles: Bool { CachedUserDefaults.bool("hideColoredCircles") }
     static var windowDisplayDelay: DispatchTimeInterval { DispatchTimeInterval.milliseconds(CachedUserDefaults.int("windowDisplayDelay")) }
+    static var cacheExpirationSeconds: Int { CachedUserDefaults.int("cacheExpirationSeconds") }
     static var fadeOutAnimation: Bool { CachedUserDefaults.bool("fadeOutAnimation") }
     static var previewFadeInAnimation: Bool { CachedUserDefaults.bool("previewFadeInAnimation") }
     static var hideSpaceNumberLabels: Bool { CachedUserDefaults.bool("hideSpaceNumberLabels") }

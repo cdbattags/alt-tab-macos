@@ -15,7 +15,8 @@ class LightImageView: NSView {
         translatesAutoresizingMaskIntoConstraints = false
         wantsLayer = true
         // configure the layer for efficient GPU-scaling
-        layer!.contentsGravity = .resize
+        // Use .resizeAspect to maintain aspect ratio and prevent stretching
+        layer!.contentsGravity = .resizeAspect
         layer!.magnificationFilter = .trilinear
         layer!.minificationFilter = .trilinear
         layer!.minificationFilterBias = 0.0
