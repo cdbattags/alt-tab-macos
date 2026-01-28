@@ -14,3 +14,5 @@ codesign.conf
 codesign.crt
 codesign.key
 codesign.p12
+/logs/
+# AI-generated docs are tracked in docs/ai/

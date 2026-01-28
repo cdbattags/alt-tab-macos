@@ -1,0 +1,137 @@
+---
+description: Performance optimization patterns and caching strategies
+globs: **/*.swift
+alwaysApply: false
+---
+
+# Performance Optimization Patterns
+
+## Image Processing Optimization
+
+### Async Image Decoding & Pre-scaling
+
+**Always use ImageProcessor for window thumbnails:**
+
+```swift
+// ✅ GOOD - Async processing on background thread
+ImageProcessor.processImage(cgImage, windowId: windowId, targetSize: size) { processedImage in
+    DispatchQueue.main.async {
+        window.refreshThumbnail(.cgImage(processedImage))
+    }
+}
+
+// ❌ BAD - Synchronous processing blocks main thread
+window.refreshThumbnail(.cgImage(cgImage))  // Decode happens on main thread!
+```
+
+**Benefits:**
+- Moves 25-40ms image decode off main thread
+- Saves 10-20ms on scaling with smart caching
+- Automatically caches pre-scaled images per window
+- Clears cache on app idle (via CacheManager)
+
+**Key Features:**
+- Never upscales (maintains quality)
+- Only scales if difference > 10% (avoids unnecessary work)
+- High-quality interpolation
+- macOS 10.12+ compatible (custom SizeKey wrapper)
+
+## Caching Strategy
+
+### 1. Simple Value Caching
+
+```swift
+// ✅ GOOD - Cache expensive computations
+private static var mainWindowCache = [Int32: CGWindowID?]()
+
+func getMainWindow(for pid: Int32) -> CGWindowID? {
+    if let cached = mainWindowCache[pid] {
+        Logger.cacheHit("Main window", details: "pid \(pid)")
+        return cached
+    }
+    
+    let result = expensiveMainWindowLookup(pid)
+    mainWindowCache[pid] = result
+    Logger.cacheMiss("Main window", reason: "pid \(pid)")
+    return result
+}
+```
+
+### 2. Expirable Caching
+
+```swift
+// ✅ GOOD - Time-based cache expiration
+private static var cache: CacheEntry?
+private static let cacheExpiration = 1.0 // seconds
+
+struct CacheEntry {
+    let value: Result
+    let timestamp: TimeInterval
+}
+
+func getOrCompute() -> Result {
+    let now = Date().timeIntervalSince1970
+    
+    if let cached = cache,
+       now - cached.timestamp < cacheExpiration {
+        Logger.cacheHit("Result")
+        return cached.value
+    }
+    
+    let result = expensiveComputation()
+    cache = CacheEntry(value: result, timestamp: now)
+    Logger.cacheMiss("Result", reason: "expired or empty")
+    return result
+}
+```
+
+## Avoid Expensive Operations
+
+```swift
+// ❌ BAD - Repeated expensive AX calls in loop
+for window in windows {
+    if window.isAppMainWindow() { // Expensive AX call!
+        // ...
+    }
+}
+
+// ✅ GOOD - Cache results, minimize AX calls
+let mainWindowId = findMainWindowSimple(windows) // Fast heuristic
+windows.forEach { window in
+    if window.cgWindowId == mainWindowId {
+        // ...
+    }
+}
+```
+
+## Batch UI Updates
+
+```swift
+// ✅ GOOD - Batch updates in single CATransaction
+CATransaction.begin()
+CATransaction.setDisableActions(true)
+frames.forEach { view, frame in
+    view.frame = frame
+}
+CATransaction.commit()
+```
+
+## Lazy Evaluation
+
+```swift
+// ✅ GOOD - Only compute when needed
+if needsVisibilityUpdate {
+    window.shouldShowTheUser = computeVisibility()
+}
+
+// ❌ BAD - Computing unnecessarily
+window.shouldShowTheUser = computeVisibility() // Every time!
+```
+
+## Performance Rules
+
+1. **Cache expensive operations** - Especially AX calls, window lookups
+2. **Use cache invalidation** - Clear caches when underlying data changes
+3. **Log cache behavior** - Use `Logger.cacheHit/Miss` for visibility
+4. **Batch UI updates** - Use `CATransaction` for multiple frame changes
+5. **Minimize expensive API calls** - Prefer fast heuristics over AX queries

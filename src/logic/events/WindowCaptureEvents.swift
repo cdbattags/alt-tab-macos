@@ -59,15 +59,18 @@ class WindowCaptureScreenshots {
         guard !App.app.isTerminating, let window = (Windows.list.first { $0.cgWindowId == scWindow.windowID }), window.size != nil else { return }
         let config = SCStreamConfiguration.forWindow(scWindow, window, false)
         let filter = SCContentFilter(desktopIndependentWindow: scWindow)
+        let windowId = scWindow.windowID
         ActiveWindowCaptures.increment()
         SCScreenshotManager.captureImage(contentFilter: filter, configuration: config) { cgImage, error in
             ActiveWindowCaptures.decrement()
             guard let cgImage, error == nil else { Logger.error { "\(window.debugId()) \(cgImage == nil) \(error)" }; return }
             guard source != .refreshOnlyThumbnailsAfterShowUi || App.app.appIsBeingUsed else { return }
-            DispatchQueue.main.async {
+            
+            // Process image async (decode only, GPU scales during display)
+            ImageProcessor.processImage(cgImage, windowId: windowId) { processedImage in
                 guard source != .refreshOnlyThumbnailsAfterShowUi || App.app.appIsBeingUsed else { return }
-                if let window = (Windows.list.first { $0.cgWindowId == scWindow.windowID }) {
-                    window.refreshThumbnail(.cgImage(cgImage))
+                if let window = (Windows.list.first { $0.cgWindowId == windowId }) {
+                    window.refreshThumbnail(.cgImage(processedImage))
                 }
             }
         }
@@ -81,9 +84,11 @@ class WindowCaptureScreenshotsPrivateApi {
                 guard source != .refreshOnlyThumbnailsAfterShowUi || App.app.appIsBeingUsed else { return }
                 guard let wid = window?.cgWindowId, let cgImage = oneTimeCapture(wid) else { return }
                 guard source != .refreshOnlyThumbnailsAfterShowUi || App.app.appIsBeingUsed else { return }
-                DispatchQueue.main.async { [weak window] in
+                
+                // Process image async (decode only, GPU scales during display)
+                ImageProcessor.processImage(cgImage, windowId: wid) { processedImage in
                     guard source != .refreshOnlyThumbnailsAfterShowUi || App.app.appIsBeingUsed else { return }
-                    window?.refreshThumbnail(.cgImage(cgImage))
+                    window?.refreshThumbnail(.cgImage(processedImage))
                 }
             }
         }

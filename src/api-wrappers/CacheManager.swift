@@ -38,6 +38,7 @@ class CacheManager {
         clearLayoutCaches()
         clearScreenCaches()
         clearPreviewCaches()
+        clearImageCaches()
         Logger.perf("CacheManager: All caches cleared manually")
     }
     
@@ -75,5 +76,10 @@ class CacheManager {
     private static func clearPreviewCaches() {
         // Clear Windows preview cache
         Windows.clearPreviewCache()
+    }
+    
+    private static func clearImageCaches() {
+        // Clear ImageProcessor scaled image cache
+        ImageProcessor.clearAllCaches()
     }
 }

@@ -1,0 +1,251 @@
+---
+description: AI documentation standards and organization
+alwaysApply: true
+---
+
+# Documentation Standards for AI Sessions
+
+## Core Principle
+
+**All AI-generated technical documentation must go in `docs/ai/`** to keep the repo root clean and organized.
+
+## When to Create Documentation
+
+Create docs in `docs/ai/` when:
+1. Implementing significant features or optimizations
+2. Fixing complex bugs
+3. Making architectural changes
+4. Discovering important patterns or anti-patterns
+5. Completing major refactorings
+
+**Don't create docs for:**
+- Trivial changes
+- Single-line fixes
+- Simple typo corrections
+
+## Documentation Format
+
+### Standard Template
+
+```markdown
+# Title - Brief Description
+
+**Date:** YYYY-MM-DD
+**Status:** ✅ Complete | 🚧 In Progress | ⚠️ Needs Review
+**Branch:** branch-name (if applicable)
+
+---
+
+## 🎯 Objective
+
+What was the goal?
+
+## 🐛 Problem (if bug fix)
+
+What was broken/slow/confusing?
+
+## 🔍 Root Cause (if bug fix)
+
+Why was it happening?
+
+## ✅ Solution
+
+How was it solved?
+
+## 📊 Impact
+
+- Performance: Before/after metrics
+- UX: How it improves user experience
+- Code: Lines changed, complexity reduction
+
+## 🔧 Technical Details
+
+Key code snippets, algorithms, patterns
+
+## 📝 Key Learnings
+
+What did we discover? What should future devs know?
+
+## ✅ Verification
+
+How was it tested?
+
+---
+
+## 📚 Related
+
+- Links to related docs
+- Cursor rules updated
+- External references
+```
+
+## File Naming Conventions
+
+Use SCREAMING_SNAKE_CASE for clarity:
+
+- **Features**: `FEATURE_NAME_SUMMARY.md`
+- **Bug fixes**: `BUG_NAME_FIX.md`
+- **Optimizations**: `PERFORMANCE_OPTIMIZATION_NAME.md`
+- **Architecture**: `ARCHITECTURE_COMPONENT_NAME.md`
+- **Sessions**: `SESSION_SUMMARY.md` (one per major session)
+
+## Directory Structure
+
+```
+docs/ai/
+├── .gitkeep
+├── README.md                          # Index of all docs
+├── SESSION_SUMMARY.md                 # Latest session
+├── IMAGE_OPTIMIZATION_SUMMARY.md      # Feature docs
+├── LAYOUT_SHIFT_FIX.md               # Bug fix docs
+├── UNIFIED_LOGGER_SUCCESS.md         # Architecture docs
+└── archive/                          # Old/superseded docs
+    └── OUTDATED_DOC.md
+```
+
+## Integration with Cursor Rules
+
+After creating significant documentation:
+
+1. **Extract patterns** - Identify reusable patterns
+2. **Update rules** - Add to appropriate `.cursor/rules/*.mdc` file
+3. **Cross-reference** - Link docs to rules in commit
+
+### Rule Extraction Example
+
+From `IMAGE_OPTIMIZATION_SUMMARY.md`:
+- Extract: Async image processing pattern
+- Add to: `.cursor/rules/image-optimization.mdc`
+- Reference: Link from doc to rule
+
+## Git Management
+
+### Tracked Files
+- ✅ All `.md` files in `docs/ai/`
+- ✅ `docs/ai/README.md` (index)
+- ✅ `.gitkeep` (preserve empty dir)
+
+### Ignored Files
+- ❌ `logs/` - Build logs (use `logs/build_*.log`)
+- ❌ `/tmp/alttab_perf.log` - Runtime logs
+
+## Documentation Lifecycle
+
+### 1. Create During Development
+```bash
+# Write doc as you implement
+vim docs/ai/NEW_FEATURE_SUMMARY.md
+
+# Update index if major doc
+vim docs/ai/README.md
+```
+
+### 2. Update Cursor Rules
+```bash
+# Extract patterns to rules
+vim .cursor/rules/relevant-topic.mdc
+```
+
+### 3. Commit Together
+```bash
+git add docs/ai/NEW_FEATURE_SUMMARY.md
+git add .cursor/rules/relevant-topic.mdc
+git commit -m "feat: implement new feature
+
+- Add NEW_FEATURE_SUMMARY.md with implementation details
+- Update relevant-topic.mdc with new patterns"
+```
+
+### 4. Archive When Superseded
+```bash
+# When doc becomes outdated
+mkdir -p docs/ai/archive
+git mv docs/ai/OLD_DOC.md docs/ai/archive/
+```
+
+## Anti-Patterns
+
+```markdown
+# ❌ BAD - Creating docs in repo root
+/MY_FEATURE.md
+/BUG_FIX.md
+
+# ✅ GOOD - Organized in docs/ai/
+docs/ai/MY_FEATURE_SUMMARY.md
+docs/ai/BUG_FIX_RESOLUTION.md
+
+# ❌ BAD - Vague titles
+docs/ai/STUFF.md
+docs/ai/CHANGES.md
+
+# ✅ GOOD - Descriptive titles
+docs/ai/IMAGE_OPTIMIZATION_SUMMARY.md
+docs/ai/LAYOUT_SHIFT_FIX.md
+
+# ❌ BAD - Missing key sections
+# Title
+Some text...
+
+# ✅ GOOD - Structured with template
+# Title
+**Date:** 2026-01-27
+**Status:** ✅ Complete
+[... all required sections ...]
+```
+
+## Maintenance Commands
+
+```bash
+# List all AI docs
+ls -lh docs/ai/*.md
+
+# Find docs needing updates
+grep -l "Status:.*In Progress" docs/ai/*.md
+
+# Archive old docs
+git mv docs/ai/OLD_*.md docs/ai/archive/
+
+# Update index
+vim docs/ai/README.md
+```
+
+## Benefits
+
+1. **Clean repo root** - Professional appearance
+2. **Easy discovery** - All AI docs in one place
+3. **Better git history** - Clear documentation commits
+4. **Searchable knowledge base** - Quick reference
+5. **Onboarding friendly** - New devs know where to look
+
+## Example Workflow
+
+```bash
+# 1. Start new feature
+vim src/logic/NewFeature.swift
+
+# 2. Document as you go
+vim docs/ai/NEW_FEATURE_IMPLEMENTATION.md
+
+# 3. Extract patterns
+vim .cursor/rules/feature-patterns.mdc
+
+# 4. Commit together
+git add src/logic/NewFeature.swift
+git add docs/ai/NEW_FEATURE_IMPLEMENTATION.md
+git add .cursor/rules/feature-patterns.mdc
+git commit -m "feat: implement new feature
+
+- Complete implementation in NewFeature.swift
+- Document patterns in NEW_FEATURE_IMPLEMENTATION.md
+- Add reusable patterns to feature-patterns.mdc"
+```
+
+## Summary
+
+**Always document significant work in `docs/ai/`** with:
+- Clear, descriptive filenames
+- Standard template structure
+- Cross-references to Cursor rules
+- Proper git tracking (not ignored)
+
+This creates a searchable knowledge base that helps both AI assistants and human developers understand the codebase evolution.

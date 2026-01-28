@@ -1,0 +1,93 @@
+---
+description: Swift coding standards and patterns for AltTab
+globs: **/*.swift
+alwaysApply: false
+---
+
+# Swift Standards
+
+## Naming Conventions
+
+```swift
+// ✅ Classes and Structs - PascalCase
+class WindowManager { }
+struct CacheEntry { }
+
+// ✅ Methods and Variables - camelCase
+func refreshWindows() { }
+var selectedWindowIndex: Int
+
+// ✅ Constants - camelCase (not SCREAMING_SNAKE)
+static let cacheExpiration = 1.0
+static let perfLogFile = "/tmp/alttab_perf.log"
+
+// ✅ Boolean predicates - start with is/has/should/needs
+var isFirstSummon: Bool
+var shouldShowTheUser: Bool
+var needsVisibilityUpdate: Bool
+```
+
+## Static vs Instance
+
+```swift
+// ✅ Stateless utilities - static methods
+class Windows {
+    static func refreshWhichWindowsToShowTheUser() { }
+    static var list = [Window]()
+}
+
+// ✅ Stateful objects - instance methods
+class Window {
+    func updateVisibility() { }
+    var shouldShowTheUser: Bool
+}
+```
+
+## Conditional Compilation
+
+```swift
+// ✅ GOOD - DEBUG-only code
+#if DEBUG
+static let perfLogFile = "/tmp/alttab_perf.log"
+#endif
+
+// ✅ GOOD - Entire method eliminated in Release
+@inline(__always)
+static func perf(_ message: @autoclosure () -> String) {
+    #if DEBUG
+    // Implementation
+    #endif
+}
+```
+
+## Optional Handling
+
+```swift
+// ✅ GOOD - Guard for early exit
+guard let window = windows.first else { return }
+
+// ✅ GOOD - Optional chaining
+let focusedId = application.focusedWindow?.cgWindowId
+
+// ✅ GOOD - Nil coalescing with context
+let pid = frontmostPid ?? -1
+Logger.perf("Frontmost PID: \(pid)")
+```
+
+## Type Safety
+
+```swift
+// ✅ GOOD - Explicit types for clarity
+let shortcutIndex: Int = 0
+let windows: [Window] = []
+
+// ✅ GOOD - Type inference when obvious
+let cache = [Int32: CGWindowID?]()
+```
+
+## Code Organization
+
+1. **Static properties** → **Static methods** → **Instance properties** → **Instance methods**
+2. **Group related functionality** with `// MARK: - Section Name`
+3. **Keep methods focused** - one responsibility per method
+4. **Extract complex logic** into helper methods

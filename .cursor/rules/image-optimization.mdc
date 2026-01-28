@@ -1,0 +1,221 @@
+---
+description: Image processing and optimization patterns for thumbnails
+globs: src/logic/ImageProcessor.swift,src/logic/events/WindowCaptureEvents.swift,src/ui/**/*.swift
+alwaysApply: false
+---
+
+# Image Processing & Optimization
+
+## Core Principles
+
+1. **NEVER decode images on the main thread** - Use `ImageProcessor` for async decoding
+2. **Let the GPU handle scaling** - Don't pre-scale images to avoid layout shifts
+3. **Cache decoded images** - Instant display on cache hits
+
+## ImageProcessor Usage
+
+### Basic Pattern
+
+```swift
+// ✅ GOOD - Async decode on background thread
+ImageProcessor.processImage(cgImage, windowId: windowId) { decodedImage in
+    // Callback on main thread with decoded image (original dimensions preserved)
+    window.refreshThumbnail(.cgImage(decodedImage))
+}
+
+// ❌ BAD - Synchronous decode blocks main thread (25-40ms!)
+window.refreshThumbnail(.cgImage(cgImage))
+```
+
+**Why no scaling?** Pre-scaling causes layout shifts because:
+- UI calculates thumbnail size based on `ThumbnailView.thumbnailSize()` (aspect ratio + max dimensions)
+- Pre-scaled images may not match these calculated dimensions exactly
+- GPU scaling (via `LightImageView` layers) is fast and maintains dimensions
+
+### With DispatchQueue.main
+
+```swift
+// ✅ GOOD - Async capture with async decode
+BackgroundWork.screenshotsQueue.addOperation {
+    let cgImage = captureWindowImage(windowId)
+    
+    ImageProcessor.processImage(cgImage, windowId: windowId) { decodedImage in
+        // Already on main thread, no need for DispatchQueue.main
+        window?.refreshThumbnail(.cgImage(decodedImage))
+    }
+}
+```
+
+## Cache Management
+
+ImageProcessor caches are automatically managed by `CacheManager`:
+
+```swift
+// Automatic cache clearing on idle timeout (user-configurable)
+// Manual clear for specific window
+ImageProcessor.clearCache(for: windowId)
+
+// Clear all caches
+ImageProcessor.clearAllCaches()
+
+// Debug info
+let (windows, entries) = ImageProcessor.getCacheStats()
+Logger.perf("Image cache: \(windows) windows, \(entries) total entries")
+```
+
+## Performance Characteristics
+
+### Timings
+
+- **Image decode**: 25-40ms (offloaded to background)
+- **GPU scaling**: ~1-2ms (hardware accelerated during display)
+- **Main thread**: <1ms (just assignment)
+- **Cache hit**: ~0.01ms (instant)
+
+### Cache Behavior
+
+- **One decoded image per window** - Simpler, more efficient
+- **No size variants** - GPU handles all scaling
+- **Expiration**: Via CacheManager on app idle
+
+## Why No Pre-Scaling?
+
+**Problem:** Pre-scaling causes layout shifts
+- Thumbnail size calculated by `ThumbnailView.thumbnailSize()` (aspect ratio + constraints)
+- Pre-scaled images may not match calculated dimensions exactly
+- Results in thumbnails jumping/resizing after image loads
+
+**Solution:** Let GPU handle scaling
+- Decode (decompress) only on background thread
+- Keep original image dimensions
+- GPU scales efficiently during display via `LightImageView` layers
+- Zero layout shift, consistent sizing
+
+## Cache Structure
+
+Simple and efficient:
+
+```swift
+// One decoded image per window
+private static var decodeCache = [CGWindowID: CGImage]()
+
+// No size variants needed - GPU handles all scaling
+// Simpler cache management
+// Less memory usage
+```
+
+## Integration Points
+
+### WindowCaptureEvents
+
+Both capture methods use ImageProcessor:
+
+```swift
+// ScreenCaptureKit (macOS 14+)
+SCScreenshotManager.captureImage(...) { cgImage, error in
+    ImageProcessor.processImage(cgImage, windowId: id) { decoded in
+        window.refreshThumbnail(.cgImage(decoded))
+    }
+}
+
+// Private API (fallback)
+let cgImage = oneTimeCapture(windowId)
+ImageProcessor.processImage(cgImage, windowId: id) { decoded in
+    window?.refreshThumbnail(.cgImage(decoded))
+}
+```
+
+### CacheManager
+
+```swift
+private static func clearImageCaches() {
+    ImageProcessor.clearAllCaches()
+}
+```
+
+## Performance Logging
+
+All operations logged in DEBUG builds:
+
+```swift
+Logger.perf("ImageProcessor: Starting decode for window 123")
+Logger.cacheHit("Decoded image", details: "window 123, 2.34ms")
+Logger.cacheMiss("Decoded image", reason: "window 123 - cached")
+Logger.perf("ImageProcessor: Decoded in 35.67ms for window 123")
+```
+
+## Anti-Patterns
+
+```swift
+// ❌ BAD - Manual image processing on main thread
+DispatchQueue.main.async {
+    let context = CGContext(...)
+    context.draw(image, in: rect)  // BLOCKS UI!
+    let scaled = context.makeImage()
+    view.image = scaled
+}
+
+// ✅ GOOD - Let ImageProcessor decode it
+ImageProcessor.processImage(image, windowId: id) { decoded in
+    view.image = decoded  // GPU scales during display
+}
+
+// ❌ BAD - Pre-scaling causes layout shifts
+ImageProcessor.processImage(image, windowId: id, targetSize: size) { scaled in
+    view.image = scaled  // Size might not match UI calculations!
+}
+
+// ❌ BAD - Creating own cache without expiration
+var imageCache = [CGWindowID: CGImage]()  // Never cleared!
+
+// ✅ GOOD - Use ImageProcessor's managed cache
+ImageProcessor.processImage(...)  // Automatic cache management
+```
+
+## Testing & Debugging
+
+```bash
+# Watch performance logs
+tail -f /tmp/alttab_perf.log
+
+# Check cache behavior
+# Look for "cache HIT" vs "cache MISS" messages
+
+# Verify non-blocking
+# Main thread should never show >1ms for image operations
+```
+
+## Key Benefits
+
+1. **Zero main thread blocking** - All decode on background (25-40ms saved)
+2. **Zero layout shift** - Original dimensions preserved, GPU scales
+3. **Automatic caching** - Instant display on subsequent shows
+4. **Memory efficient** - One image per window + automatic cleanup
+5. **Simpler architecture** - No complex size management
+
+## Common Issues & Solutions
+
+### Layout Shifting
+**Problem:** Thumbnails jump/resize after loading
+**Cause:** Pre-scaling to wrong dimensions
+**Solution:** ✅ Don't pre-scale, let GPU handle it
+
+### Performance
+**Problem:** Slow thumbnail display
+**Cause:** Decode on main thread
+**Solution:** ✅ Use ImageProcessor for async decode
+
+### Memory Growth
+**Problem:** Cache grows unbounded
+**Cause:** No cache expiration
+**Solution:** ✅ CacheManager clears on idle
+
+## Summary
+
+**Always use ImageProcessor for window thumbnails.** It provides:
+- Async decoding (25-40ms off main thread)
+- Zero layout shifts (GPU handles scaling)
+- Automatic caching (instant on cache hits)
+- Memory management (via CacheManager)
+
+Making the UI buttery smooth with consistent, predictable layout.

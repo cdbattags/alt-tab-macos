@@ -1,0 +1,63 @@
+---
+description: Unified Logger usage patterns and best practices
+globs: **/*.swift
+alwaysApply: false
+---
+
+# Logging Standards
+
+Use the unified `Logger` class with semantic methods. All performance logging is zero-overhead in Release builds via `#if DEBUG`.
+
+## Logger Methods
+
+```swift
+// ✅ General logging (production)
+Logger.info { "User action completed" }
+Logger.debug { "Cache state: \(cacheCount)" }
+Logger.warning { "Unusual condition detected" }
+Logger.error { "Operation failed: \(error)" }
+
+// ✅ Performance logging (DEBUG only, zero overhead in Release)
+Logger.perf("Operation completed in 5.2ms")
+Logger.measure("Layout calculation") { doLayout() }
+Logger.section("Window updates") { section in
+    doWork()
+    section.log("Intermediate state")
+}
+
+// ✅ Cache logging
+Logger.cacheHit("Layout", details: "key matched")
+Logger.cacheMiss("Main window", reason: "pid 1234 - cached 5678")
+```
+
+## Anti-Patterns
+
+```swift
+// ❌ BAD - Manual timing
+let start = DispatchTime.now()
+doWork()
+let elapsed = Double(DispatchTime.now().uptimeNanoseconds - start.uptimeNanoseconds) / 1_000_000
+Logger.perf("Work took \(String(format: "%.2f", elapsed))ms")
+
+// ✅ GOOD - Use Logger.measure
+Logger.measure("Work") { doWork() }
+
+// ❌ BAD - Generic logging for performance
+Logger.debug { "Cache hit for \(id)" }
+
+// ✅ GOOD - Use semantic methods
+Logger.cacheHit("Widget", details: "id \(id)")
+```
+
+## Key Rules
+
+1. **Use `Logger.perf()` for simple performance logs** - automatically eliminated in Release
+2. **Use `Logger.measure()` for timing blocks** - cleaner than manual timing
+3. **Use semantic cache methods** - `cacheHit()` and `cacheMiss()` for clarity
+4. **Use `@autoclosure`** - Logger methods already use it, expensive computations are deferred
+5. **Never use print()** - Always use Logger methods
+
+## Output Location
+
+- Console: All logs in DEBUG builds
+- File: `/tmp/alttab_perf.log` for performance logs in DEBUG builds

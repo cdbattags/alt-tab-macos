@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		626232363035383663356333 /* ImageProcessor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 393733313661356161366430 /* ImageProcessor.swift */; };
 		1C96101BC5817A7F85FA1F8D /* titles_show_running_applications_light@2x.jpg in Resources */ = {isa = PBXBuildFile; fileRef = 1C961F57248D4E2377A9038E /* titles_show_running_applications_light@2x.jpg */; };
 		1C96108A0CB2565233FE100B /* TableGroupView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1C961FB3DCF4906FEEF4A23D /* TableGroupView.swift */; };
 		1C96109FD155140CBA709A16 /* app_icons_hide_tabs_as_windows_light@2x.jpg in Resources */ = {isa = PBXBuildFile; fileRef = 1C961CABD14356E109102D56 /* app_icons_hide_tabs_as_windows_light@2x.jpg */; };
@@ -300,6 +301,7 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
+		393733313661356161366430 /* ImageProcessor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = src/logic/ImageProcessor.swift; sourceTree = "<group>"; };
 		1C961003A0D16B9AE3932B3F /* thumbnails_show_colored_circles_light@2x.jpg */ = {isa = PBXFileReference; lastKnownFileType = image.jpeg; path = "thumbnails_show_colored_circles_light@2x.jpg"; sourceTree = "<group>"; };
 		1C9610071E9F3434C893DC95 /* thumbnails_align_thumbnails_center_light@2x.jpg */ = {isa = PBXFileReference; lastKnownFileType = image.jpeg; path = "thumbnails_align_thumbnails_center_light@2x.jpg"; sourceTree = "<group>"; };
 		1C961093FB75180759EC6972 /* app_icons_hide_app_badges_light@2x.jpg */ = {isa = PBXFileReference; lastKnownFileType = image.jpeg; path = "app_icons_hide_app_badges_light@2x.jpg"; sourceTree = "<group>"; };
@@ -2430,6 +2432,7 @@ EEC453E26D1843F994CEDEF7 /* CacheManager.swift */ = {isa = PBXFileReference; las
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				626232363035383663356333 /* ImageProcessor.swift in Sources */,
 				5F882F382EC3C63400110A9F /* CustomRecorderControlTestable.swift in Sources */,
 				BF0C81FA62D810342F59291A /* AppearanceTests.swift in Sources */,
 				5F4753072CEE5A2E002C6C5E /* AppearanceTestable.swift in Sources */,
@@ -2450,6 +2453,7 @@ EEC453E26D1843F994CEDEF7 /* CacheManager.swift */ = {isa = PBXFileReference; las
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				626232363035383663356333 /* ImageProcessor.swift in Sources */,
 				D04BAFBC862BA5FE0294EA7A /* AXUIElement.swift in Sources */,
 				D04BA73E90EFEF8247A5105D /* CGWindow.swift in Sources */,
 				D04BA004884A273D4D2D3EF1 /* HelperExtensions.swift in Sources */,

@@ -1,0 +1,112 @@
+---
+description: Window management patterns and shortcut handling
+globs: src/logic/*.swift,src/ui/*.swift
+alwaysApply: false
+---
+
+# Window Management Patterns
+
+## Shortcut Modes
+
+The app has multiple shortcut modes (indexes):
+- **shortcutIndex 0**: `cmd+tab` - Show one window per app
+- **shortcutIndex 1+**: `cmd+\`` - Show all windows of current app
+
+### Switching Modes
+
+```swift
+// ✅ GOOD - Force visibility update when shortcut changes
+if shortcutIndex != self.shortcutIndex {
+    Windows.list.forEach { $0.needsVisibilityUpdate = true }
+    self.shortcutIndex = shortcutIndex
+    // ... refresh display
+}
+```
+
+## Window Filtering
+
+### One Window Per App (cmd+tab)
+
+```swift
+// ✅ GOOD - Use cache to avoid expensive AX calls
+let shouldShowOnePerApp = App.app.shortcutIndex == 0
+
+if shouldShowOnePerApp {
+    let windowsGroupedByApp = Dictionary(grouping: list) { $0.application.pid }
+    
+    windowsGroupedByApp.forEach { (pid, windows) in
+        if windows.count > 1 {
+            // Check cache first
+            if let cachedId = mainWindowCache[pid],
+               let cached = windows.first(where: { $0.cgWindowId == cachedId }) {
+                Logger.cacheHit("Main window", details: "pid \(pid)")
+                hideOtherWindows(except: cached)
+            } else {
+                let mainWindow = findMainWindowSimple(windows)
+                mainWindowCache[pid] = mainWindow?.cgWindowId
+                Logger.cacheMiss("Main window", reason: "pid \(pid)")
+                hideOtherWindows(except: mainWindow)
+            }
+        }
+    }
+}
+```
+
+### Fast Main Window Detection
+
+```swift
+// ✅ GOOD - Use heuristics, avoid expensive AX calls
+static func findMainWindowSimple(_ windows: [Window]) -> Window? {
+    let visibleWindows = windows.filter { $0.shouldShowTheUser }
+    if visibleWindows.isEmpty { return nil }
+
+    // Prefer focused window
+    if let focusedId = windows.first?.application.focusedWindow?.cgWindowId,
+       let focused = visibleWindows.first(where: { $0.cgWindowId == focusedId }) {
+        return focused
+    }
+
+    // Prefer most recently focused (lowest lastFocusOrder)
+    return visibleWindows.min(by: { $0.lastFocusOrder < $1.lastFocusOrder })
+}
+
+// ❌ BAD - Expensive AX calls in loop
+static func findMainWindow(_ windows: [Window]) -> Window? {
+    return windows.first { $0.isAppMainWindow() } // Expensive!
+}
+```
+
+## Cache Invalidation
+
+```swift
+// ✅ Clear cache when window list changes significantly
+static func clearMainWindowCache() {
+    mainWindowCache.removeAll()
+    Logger.perf("Main window cache cleared")
+}
+```
+
+## Shortcut Triggering
+
+```swift
+// ✅ Allow mode switching while UI is open
+func shouldTrigger() -> Bool {
+    if scope == .global {
+        // Allow any global shortcut to trigger on .down
+        // This enables switching between cmd+tab and cmd+`
+        if triggerPhase == .down {
+            return true
+        }
+        // ... handle .up phase
+    }
+    return false
+}
+```
+
+## Key Principles
+
+1. **Cache main window per app** - Avoid repeated AX calls
+2. **Mark for update on mode switch** - Set `needsVisibilityUpdate` when `shortcutIndex` changes
+3. **Use fast heuristics** - Prefer `lastFocusOrder` over expensive AX queries
+4. **Clear caches appropriately** - When window list changes significantly
+5. **Allow mode switching** - Enable switching between shortcuts while UI is open

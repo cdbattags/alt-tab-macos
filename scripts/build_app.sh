@@ -34,12 +34,21 @@ echo "🔨 Building ${BUILD_CONFIG} configuration..."
 # Determine scheme based on config
 SCHEME="${BUILD_CONFIG}"
 
+# Create logs directory if it doesn't exist
+mkdir -p logs
+
+# Set log file path with timestamp
+LOG_FILE="logs/build_$(date +%Y%m%d_%H%M%S).log"
+
 # Build the project
 set -o pipefail && xcodebuild \
     -workspace alt-tab-macos.xcworkspace \
     -scheme "${SCHEME}" \
     -configuration "${BUILD_CONFIG}" \
-    build 2>&1 | tail -20
+    build 2>&1 | tee "${LOG_FILE}" | tail -20
+
+echo ""
+echo "📝 Full build log saved to: ${LOG_FILE}"
 
 echo ""
 echo "✅ Build succeeded!"

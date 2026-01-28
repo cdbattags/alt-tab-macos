@@ -1,0 +1,99 @@
+---
+description: Xcode project and build system guidelines
+alwaysApply: true
+---
+
+# Build System & Xcode Project
+
+## Build Commands
+
+```bash
+# ✅ Use project build script
+./scripts/build_app.sh Debug
+./scripts/build_app.sh Release
+./scripts/build_app.sh Debug --install
+./scripts/build_app.sh Debug --install --launch
+
+# ❌ Don't use xcodebuild directly unless necessary
+xcodebuild -scheme Debug ...
+```
+
+### Build Logs
+
+All builds automatically save full logs to `logs/` directory:
+- **Format**: `logs/build_YYYYMMDD_HHMMSS.log`
+- **Ignored by git**: `logs/` is in `.gitignore`
+- **Terminal output**: Last 20 lines shown, full log saved
+- **Location printed**: At end of build for easy reference
+
+## project.pbxproj Modifications
+
+**⚠️ CRITICAL: Never hand-edit project.pbxproj without extreme care!**
+
+### Rules for Modifying project.pbxproj
+
+1. **Use Python scripts** for modifications (not sed/awk/grep)
+2. **Always backup** before changes: `git checkout project.pbxproj`
+3. **Validate** after changes: `xcodebuild -list` to detect corruption
+4. **Test build** immediately after modifications
+
+### Adding Files to Project
+
+```python
+# ✅ GOOD - Use structured parsing
+import json, re
+
+# Parse project file as structured data
+with open('project.pbxproj', 'r') as f:
+    content = f.read()
+
+# Add to all required sections:
+# 1. PBXBuildFile
+# 2. PBXFileReference  
+# 3. PBXGroup (api-wrappers)
+# 4. PBXSourcesBuildPhase
+
+# Validate UUID format: [A-F0-9]{24}
+```
+
+### Common Issues
+
+```bash
+# ❌ Parse error after modification
+# FIX: git checkout project.pbxproj and retry
+
+# ❌ File not found in build
+# FIX: Check all 4 sections (Build, Reference, Group, Phase)
+
+# ❌ Duplicate entries
+# FIX: Remove duplicates, maintain UUID consistency
+```
+
+## Code Signing
+
+```bash
+# Team ID: 4XSSSBSFDJ
+# Certificate: Developer ID Application
+# Entitlements: alt_tab_macos.entitlements
+```
+
+## Testing Changes
+
+```bash
+# 1. Clean build
+./scripts/build_app.sh Debug
+
+# 2. Install and test
+./scripts/build_app.sh Debug --install --launch
+
+# 3. Check logs
+tail -f /tmp/alttab_perf.log  # Performance logs (DEBUG only)
+cat logs/build_*.log | tail -100  # Most recent build log
+```
+
+## File Locations
+
+- **Build output**: `~/Library/Developer/Xcode/DerivedData/alt-tab-macos-*/Build/Products/`
+- **Build logs**: `logs/build_YYYYMMDD_HHMMSS.log` (timestamped, git-ignored)
+- **Performance logs**: `/tmp/alttab_perf.log` (DEBUG only)
+- **Installed app**: `/Applications/AltTab.app`
