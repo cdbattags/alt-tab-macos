@@ -92,8 +92,41 @@ class ThumbnailsView {
         Windows.updateSelectedAndHoveredWindowIndex(targetIndex)
     }
 
+    // Performance optimization: Layout result caching per screen
+    // Cache EVERYTHING to prevent any layout modifications on cache hit
+    // see https://github.com/lwouis/alt-tab-macos/issues/5177
+    private var cachedLayoutKey: String = ""
+    private var cachedLayoutComplete: Bool = false
+    
+    /// Clear layout cache to free memory (called by CacheManager on idle)
+    func clearLayoutCache() {
+        cachedLayoutKey = ""
+        cachedLayoutComplete = false
+        PerfLogger.log("ThumbnailsView: Layout cache cleared")
+    }
+    
     func updateItemsAndLayout() {
+        // Performance optimization: Check if layout can be reused
+        let layoutKey = generateLayoutKey()
+        let cacheMatches = layoutKey == cachedLayoutKey
+        
+        if cacheMatches && cachedLayoutComplete {
+            PerfLogger.log("Layout cache HIT - skipping ALL layout operations")
+            highlightStartView()
+            return
+        }
+        
+        if !cacheMatches {
+            PerfLogger.log("Layout cache MISS - key changed")
+            PerfLogger.log("  Old key hash: \(cachedLayoutKey.hashValue)")
+            PerfLogger.log("  New key hash: \(layoutKey.hashValue)")
+        } else {
+            PerfLogger.log("Layout cache MISS - no cached result")
+        }
+        
+        cachedLayoutComplete = false
         let widthMax = ThumbnailsPanel.maxThumbnailsWidth().rounded()
+        
         if let (maxX, maxY, labelHeight) = layoutThumbnailViews(widthMax) {
             layoutParentViews(maxX, widthMax, maxY, labelHeight)
             if Preferences.alignThumbnails == .center {
@@ -108,7 +141,20 @@ class ThumbnailsView {
                 }
             }
             highlightStartView()
+            
+            // Mark layout as complete and cache the key
+            cachedLayoutKey = layoutKey
+            cachedLayoutComplete = true
         }
+    }
+    
+    private func generateLayoutKey() -> String {
+        // Cache key based on windows + screen dimensions
+        // Including screen UUID prevents layout shifts when switching displays
+        let visibleWindows = Windows.list.filter { $0.shouldShowTheUser }
+        let screenId = NSScreen.preferred.uuid() ?? "" as CFString
+        let windowsKey = visibleWindows.map { "\($0.id)_\($0.title ?? "")_\(String(describing: $0.size))" }.joined(separator: "|")
+        return "\(screenId)_\(windowsKey)"
     }
 
     private func layoutThumbnailViews(_ widthMax: CGFloat) -> (CGFloat, CGFloat, CGFloat)? {
@@ -121,6 +167,9 @@ class ThumbnailsView {
         var maxX = CGFloat(0)
         var maxY = currentY + height + Appearance.interCellPadding
         var newViews = [ThumbnailView]()
+        // Performance optimization: Batch frame origin updates
+        // see https://github.com/lwouis/alt-tab-macos/issues/5177
+        var frameOrigins: [(view: ThumbnailView, origin: CGPoint)] = []
         rows.removeAll(keepingCapacity: true)
         rows.append([ThumbnailView]())
         var index = 0
@@ -131,21 +180,32 @@ class ThumbnailsView {
             if index < Windows.list.count {
                 let window = Windows.list[index]
                 guard window.shouldShowTheUser else { continue }
-                view.updateRecycledCellWithNewContent(window, index, height)
-                let width = view.frame.size.width
+                
+                // Performance optimization: Only update content if window changed or height changed
+                // This prevents width fluctuations that cause row overflow shifts
+                // see https://github.com/lwouis/alt-tab-macos/issues/5177
+                let needsContentUpdate = view.window_?.cgWindowId != window.cgWindowId || view.frame.size.height != height
+                if needsContentUpdate {
+                    view.updateRecycledCellWithNewContent(window, index, height)
+                }
+                
+                // Use cached width for layout stability - prevents shifts from frame transitions
+                let width = window.cachedThumbnailWidth ?? view.frame.size.width
                 let projectedX = projectedWidth(currentX, width).rounded(.down)
+                let newOrigin: CGPoint
                 if needNewLine(projectedX, widthMax) {
                     currentX = startingX
                     currentY = (currentY + height + Appearance.interCellPadding).rounded(.down)
-                    view.frame.origin = CGPoint(x: localizedCurrentX(currentX, width), y: currentY)
+                    newOrigin = CGPoint(x: localizedCurrentX(currentX, width), y: currentY)
                     currentX = projectedWidth(currentX, width).rounded(.down)
                     maxY = max(currentY + height + Appearance.interCellPadding, maxY)
                     rows.append([ThumbnailView]())
                 } else {
-                    view.frame.origin = CGPoint(x: localizedCurrentX(currentX, width), y: currentY)
+                    newOrigin = CGPoint(x: localizedCurrentX(currentX, width), y: currentY)
                     currentX = projectedX
                     maxX = max(isLeftToRight ? currentX : widthMax - currentX, maxX)
                 }
+                frameOrigins.append((view, newOrigin))
                 rows[rows.count - 1].append(view)
                 newViews.append(view)
                 window.rowIndex = rows.count - 1
@@ -155,6 +215,19 @@ class ThumbnailsView {
                 view.appIcon.releaseImage()
             }
         }
+        
+        // Performance optimization: Apply all frame origins in a single CATransaction
+        // Reduces layer tree update overhead
+        let batchStart = DispatchTime.now()
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        for (view, origin) in frameOrigins {
+            view.frame.origin = origin
+        }
+        CATransaction.commit()
+        let batchElapsed = Double(DispatchTime.now().uptimeNanoseconds - batchStart.uptimeNanoseconds) / 1_000_000
+        PerfLogger.log("Batched \(frameOrigins.count) frame origin updates in \(String(format: "%.2f", batchElapsed))ms")
+        
         scrollView.documentView!.subviews = newViews
         return (maxX, maxY, labelHeight)
     }

@@ -14,6 +14,17 @@ class AnimationsSheet: SheetWindow {
             rightViews: LabelAndControl.makeSwitch("fadeOutAnimation"))
         table.addRow(leftText: NSLocalizedString("Fade in animation of Preview", comment: ""),
             rightViews: LabelAndControl.makeSwitch("previewFadeInAnimation"))
+        table.addNewTable()
+        
+        // Cache expiration setting - see https://github.com/lwouis/alt-tab-macos/issues/5177
+        let cacheSlider = LabelAndControl.makeLabelWithSlider("", "cacheExpirationSeconds", 30, 300, 10, false, "s", width: 180)
+        let cacheRule = cacheSlider[1]
+        let cacheIndicator = cacheSlider[2] as! NSTextField
+        cacheIndicator.alignment = .right
+        cacheIndicator.fit(56, cacheIndicator.fittingSize.height)
+        table.addRow(leftText: NSLocalizedString("Cache expiration delay", comment: ""),
+            rightViews: [cacheRule, cacheIndicator])
+        
         table.fit()
         return table
     }

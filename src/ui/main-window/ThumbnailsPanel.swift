@@ -88,22 +88,56 @@ class ThumbnailsPanel: NSPanel {
         thumbnailsView.scrollView.flashScrollers()
     }
 
+    // Performance optimization: Cache screen dimensions per display
+    // Prevents layout recalculation when switching between displays
+    // see https://github.com/lwouis/alt-tab-macos/issues/5177
+    private static var cachedScreenDimensions: [ScreenUuid: (width: CGFloat, height: CGFloat)] = [:]
+    
     static func maxThumbnailsWidth(_ screen: NSScreen = NSScreen.preferred) -> CGFloat {
+        // Check cache first
+        if let uuid = screen.uuid(), let cached = cachedScreenDimensions[uuid] {
+            PerfLogger.log("Screen dimensions cache HIT for display \(uuid)")
+            return cached.width
+        }
+        
+        // Calculate and cache
+        PerfLogger.log("Screen dimensions cache MISS - calculating for display \(screen.uuid() ?? "unknown" as CFString)")
+        let width: CGFloat
         if Preferences.appearanceStyle == .titles,
            let readableWidth = ThumbnailView.widthOfComfortableReadability() {
-            return (
+            width = (
                 min(
                     screen.frame.width * Appearance.maxWidthOnScreen,
                     readableWidth + Appearance.intraCellPadding * 2 + Appearance.appIconLabelSpacing + Appearance.iconSize
                     // widthOfLongestTitle + Appearance.intraCellPadding * 2 + Appearance.appIconLabelSpacing + Appearance.iconSize
                 ) - Appearance.windowPadding * 2
             ).rounded()
+        } else {
+            width = (screen.frame.width * Appearance.maxWidthOnScreen - Appearance.windowPadding * 2).rounded()
         }
-        return (screen.frame.width * Appearance.maxWidthOnScreen - Appearance.windowPadding * 2).rounded()
+        
+        if let uuid = screen.uuid() {
+            let height = (screen.frame.height * Appearance.maxHeightOnScreen - Appearance.windowPadding * 2).rounded()
+            cachedScreenDimensions[uuid] = (width, height)
+        }
+        
+        return width
     }
 
     static func maxThumbnailsHeight(_ screen: NSScreen = NSScreen.preferred) -> CGFloat {
-        return (screen.frame.height * Appearance.maxHeightOnScreen - Appearance.windowPadding * 2).rounded()
+        // Check cache first
+        if let uuid = screen.uuid(), let cached = cachedScreenDimensions[uuid] {
+            return cached.height
+        }
+        
+        // Calculate and cache (will be cached by maxThumbnailsWidth call)
+        _ = maxThumbnailsWidth(screen)
+        return cachedScreenDimensions[screen.uuid() ?? "" as CFString]?.height ?? (screen.frame.height * Appearance.maxHeightOnScreen - Appearance.windowPadding * 2).rounded()
+    }
+    
+    static func clearScreenDimensionCache() {
+        cachedScreenDimensions.removeAll()
+        PerfLogger.log("ThumbnailsPanel: Screen dimension cache cleared (\(cachedScreenDimensions.count) entries)")
     }
 
     static func updateMaxPossibleThumbnailSize() {

@@ -35,7 +35,12 @@ class PreviewPanel: NSPanel {
         let frameChanged = newFrame != cachedFrame
         let idChanged = id != currentId
         
+        // Performance optimization: Batch frame and content updates in a single transaction
+        // This prevents layout shift and reduces render passes
         if idChanged || frameChanged {
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
+            
             if frameChanged {
                 cachedFrame = newFrame
                 repositionAndResize(position, size)
@@ -43,6 +48,8 @@ class PreviewPanel: NSPanel {
             if idChanged {
                 previewView.updateContents(preview, size)
             }
+            
+            CATransaction.commit()
         }
         
         if idChanged || !isVisible {
@@ -66,13 +73,60 @@ class PreviewPanel: NSPanel {
 
     func updateIfShowing(_ id: CGWindowID?,  _ preview: CALayerContents, _ position: CGPoint, _ size: CGSize) {
         if isVisible && id == currentId {
-            repositionAndResize(position, size)
-            previewView.updateContents(preview, size)
+            // Performance optimization: Batch updates to prevent layout shift
+            // see https://github.com/lwouis/alt-tab-macos/issues/5177
+            let newFrame = NSRect(origin: position, size: size)
+            if newFrame != cachedFrame {
+                CATransaction.begin()
+                CATransaction.setDisableActions(true)
+                
+                cachedFrame = newFrame
+                repositionAndResize(position, size)
+                previewView.updateContents(preview, size)
+                
+                CATransaction.commit()
+            }
         }
     }
 
     private func repositionAndResize( _ position: CGPoint, _ size: CGSize) {
-        var frame = NSRect(origin: position, size: size)
+        // Get the screen this preview will appear on
+        let targetScreen = NSScreen.screens.first { screen in
+            let screenFrame = screen.frame
+            let centerPoint = CGPoint(x: position.x + size.width / 2, y: position.y + size.height / 2)
+            return screenFrame.contains(centerPoint)
+        } ?? NSScreen.preferred
+        
+        // Calculate the maximum available space on this screen (with padding)
+        let padding: CGFloat = 20
+        let maxWidth = targetScreen.frame.width - padding * 2
+        let maxHeight = targetScreen.frame.height - padding * 2 - 88 // Account for menubar + dock
+        
+        // Calculate aspect ratio preserving size that fits within max bounds
+        let windowAspect = size.width / size.height
+        let containerAspect = maxWidth / maxHeight
+        
+        var previewSize = size
+        if windowAspect > containerAspect {
+            // Window is wider - constrain by width
+            if size.width > maxWidth {
+                previewSize.width = maxWidth
+                previewSize.height = maxWidth / windowAspect
+            }
+        } else {
+            // Window is taller - constrain by height
+            if size.height > maxHeight {
+                previewSize.height = maxHeight
+                previewSize.width = maxHeight * windowAspect
+            }
+        }
+        
+        // Ensure we don't make it larger than the original
+        if previewSize.width > size.width || previewSize.height > size.height {
+            previewSize = size
+        }
+        
+        var frame = NSRect(origin: position, size: previewSize)
         // Flip Y coordinate from Quartz (0,0 at bottom-left) to Cocoa coordinates (0,0 at top-left)
         // Always use the primary screen as reference since all coordinates are relative to it
         frame.origin.y = NSScreen.screens.first!.frame.maxY - frame.maxY

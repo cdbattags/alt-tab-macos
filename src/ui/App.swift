@@ -71,6 +71,8 @@ class App: AppCenterApplication {
         }
         hideAllTooltips()
         MainMenu.toggle(enabled: true)
+        // Schedule cache expiration after idle timeout
+        CacheManager.uiDidHide()
     }
 
     /// some tooltips may not be hidden when the main window is hidden; we force it through a private API
@@ -260,15 +262,22 @@ class App: AppCenterApplication {
 
     func showUiOrCycleSelection(_ shortcutIndex: Int, _ forceDoNothingOnRelease_: Bool) {
         forceDoNothingOnRelease = forceDoNothingOnRelease_
-        Logger.debug { "isFirstSummon:\(self.isFirstSummon) shortcutIndex:\(shortcutIndex)" }
+        Logger.debug { "isFirstSummon:\(self.isFirstSummon) currentShortcutIndex:\(self.shortcutIndex) newShortcutIndex:\(shortcutIndex)" }
+        PerfLogger.log("showUiOrCycleSelection called with shortcutIndex:\(shortcutIndex), current:\(self.shortcutIndex)")
         App.app.appIsBeingUsed = true
         if isFirstSummon || shortcutIndex != self.shortcutIndex {
+            PerfLogger.log("Switching to shortcut index \(shortcutIndex) (was \(self.shortcutIndex))")
             NSScreen.updatePreferred()
             if isVeryFirstSummon {
                 Windows.sortByLevel()
                 isVeryFirstSummon = false
             }
             isFirstSummon = false
+            // Mark all windows as needing visibility update when shortcut changes
+            // This ensures window filtering is re-applied based on the new shortcut's settings
+            if shortcutIndex != self.shortcutIndex {
+                Windows.list.forEach { $0.needsVisibilityUpdate = true }
+            }
             self.shortcutIndex = shortcutIndex
             if !Windows.updatesBeforeShowing() { hideUi(); return }
             Windows.setInitialSelectedAndHoveredWindowIndex()
@@ -291,6 +300,8 @@ class App: AppCenterApplication {
 
     func buildUiAndShowPanel() {
         guard appIsBeingUsed else { return }
+        // Cancel cache expiration since UI is now active
+        CacheManager.uiDidShow()
         Appearance.update()
         guard appIsBeingUsed else { return }
         refreshOpenUi([], .showUi)

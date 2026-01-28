@@ -6,6 +6,9 @@ class Windows {
     static var selectedWindowTarget: String?
     static var hoveredWindowIndex: Int?
     private static var lastWindowActivityType = WindowActivityType.none
+    
+    // Cache for main window per app (cleared when window list changes significantly)
+    private static var mainWindowCache = [Int32: CGWindowID?]()
 
     static func updateIsFullscreenOnCurrentSpace() {
         let windowsOnCurrentSpace = list.filter { !$0.isWindowlessApp }
@@ -38,18 +41,73 @@ class Windows {
         }
     }
 
+    // Performance optimization: Cache last preview state to avoid redundant updates
+    // see https://github.com/lwouis/alt-tab-macos/issues/5177
+    private static var lastPreviewWindowId: CGWindowID?
+    private static var lastPreviewShown: Bool = false
+    private static var previewDebounceTimer: Timer?
+    private static var pendingPreviewWindow: Window?
+    
+    /// Clear preview cache to free memory (called by CacheManager on idle)
+    static func clearPreviewCache() {
+        lastPreviewWindowId = nil
+        lastPreviewShown = false
+        previewDebounceTimer?.invalidate()
+        previewDebounceTimer = nil
+        pendingPreviewWindow = nil
+        PerfLogger.log("Windows: Preview cache cleared")
+    }
+    
     static func previewSelectedWindowIfNeeded() {
-        if App.app.appIsBeingUsed && ScreenRecordingPermission.status == .granted
+        let shouldShow = App.app.appIsBeingUsed && ScreenRecordingPermission.status == .granted
                && Preferences.previewSelectedWindow && !Preferences.onlyShowApplications()
-               && App.app.thumbnailsPanel.isKeyWindow,
+               && App.app.thumbnailsPanel.isKeyWindow
+        
+        if shouldShow,
            let window = selectedWindow(),
            let id = window.cgWindowId,
            let thumbnail = window.thumbnail,
            let position = window.position,
            let size = window.size {
-            App.app.previewPanel.show(id, thumbnail, position, size)
+            // Window changed - debounce to wait for geometry to settle
+            if id != lastPreviewWindowId {
+                // Cancel any pending preview
+                previewDebounceTimer?.invalidate()
+                pendingPreviewWindow = window
+                
+                // Wait 50ms for window geometry to settle before showing preview
+                // This prevents size/position fluctuations during window transitions
+                previewDebounceTimer = Timer.scheduledTimer(withTimeInterval: 0.05, repeats: false) { _ in
+                    guard let pendingWindow = pendingPreviewWindow,
+                          pendingWindow.cgWindowId == id,
+                          let thumbnail = pendingWindow.thumbnail,
+                          let position = pendingWindow.position,
+                          let size = pendingWindow.size else { return }
+                    
+                    App.app.previewPanel.show(id, thumbnail, position, size)
+                    lastPreviewWindowId = id
+                    lastPreviewShown = true
+                    pendingPreviewWindow = nil
+                    PerfLogger.log("Preview: Shown after geometry settled (id=\(id))")
+                }
+            } else if !lastPreviewShown {
+                // Same window, just needs to be shown (no debounce needed)
+                App.app.previewPanel.show(id, thumbnail, position, size)
+                lastPreviewWindowId = id
+                lastPreviewShown = true
+            }
         } else {
-            App.app.previewPanel.orderOut(nil)
+            // Cancel any pending preview
+            previewDebounceTimer?.invalidate()
+            previewDebounceTimer = nil
+            pendingPreviewWindow = nil
+            
+            // Only hide if it was showing before
+            if lastPreviewShown {
+                App.app.previewPanel.orderOut(nil)
+                lastPreviewWindowId = nil
+                lastPreviewShown = false
+            }
         }
     }
 
@@ -92,13 +150,35 @@ class Windows {
         lazy var visibleCgsWindowIds = Spaces.windowsInSpaces(spaceIdsAndIndexes, false)
         
         stepStart = DispatchTime.now()
+        var updatedCount = 0
+        var skippedCount = 0
         for window in list {
-            detectTabbedWindows(window, cgsWindowIds, visibleCgsWindowIds)
-            window.updateSpacesAndScreen()
-            refreshIfWindowShouldBeShownToTheUser(window)
+            // Performance optimization: Only update windows that need updating
+            // see https://github.com/lwouis/alt-tab-macos/issues/5177
+            var needsUpdate = false
+            if window.needsTabDetection {
+                detectTabbedWindows(window, cgsWindowIds, visibleCgsWindowIds)
+                window.needsTabDetection = false
+                needsUpdate = true
+            }
+            if window.needsSpaceUpdate {
+                window.updateSpacesAndScreen()
+                window.needsSpaceUpdate = false
+                needsUpdate = true
+            }
+            if window.needsVisibilityUpdate {
+                refreshIfWindowShouldBeShownToTheUser(window)
+                window.needsVisibilityUpdate = false
+                needsUpdate = true
+            }
+            if needsUpdate {
+                updatedCount += 1
+            } else {
+                skippedCount += 1
+            }
         }
         elapsed = Double(DispatchTime.now().uptimeNanoseconds - stepStart.uptimeNanoseconds) / 1_000_000
-        PerfLogger.log("updatesBeforeShowing: Window loop took \(String(format: "%.2f", elapsed))ms")
+        PerfLogger.log("updatesBeforeShowing: Window loop took \(String(format: "%.2f", elapsed))ms (updated: \(updatedCount), skipped: \(skippedCount))")
         
         stepStart = DispatchTime.now()
         refreshWhichWindowsToShowTheUser()
@@ -139,19 +219,49 @@ class Windows {
     }
 
     static func refreshWhichWindowsToShowTheUser() {
-        if Preferences.onlyShowApplications() {
+        let appsToShowSetting = Preferences.appsToShow[App.app.shortcutIndex]
+        let frontmostPid = NSWorkspace.shared.frontmostApplication?.processIdentifier
+        PerfLogger.log("refreshWhichWindowsToShowTheUser: shortcutIndex=\(App.app.shortcutIndex), appsToShow=\(appsToShowSetting), frontmostPid=\(frontmostPid ?? -1)")
+        
+        // For shortcut 0 (cmd+tab): Show one window per app for quick app switching
+        // For other shortcuts: Show all windows (already filtered by appsToShow)
+        let shouldShowOnePerApp = App.app.shortcutIndex == 0 || Preferences.onlyShowApplications()
+        
+        if shouldShowOnePerApp {
             // Group windows by application and select the optimal main window
             let windowsGroupedByApp = Dictionary(grouping: list) { $0.application.pid }
-            windowsGroupedByApp.forEach { (app, windows) in
-                if windows.count > 1, let mainWindow = findMainWindow(windows) {
-                    windows.forEach { window in
-                        if window.cgWindowId != mainWindow.cgWindowId {
-                            window.shouldShowTheUser = false
+            windowsGroupedByApp.forEach { (pid, windows) in
+                if windows.count > 1 {
+                    // Check cache first
+                    let cachedMainWindowId = mainWindowCache[pid]
+                    let mainWindow: Window?
+                    
+                    if let cachedId = cachedMainWindowId, let cached = windows.first(where: { $0.cgWindowId == cachedId }) {
+                        // Use cached main window if it still exists
+                        mainWindow = cached
+                        PerfLogger.log("Main window cache HIT for pid \(pid)")
+                    } else {
+                        // Cache miss - find main window (expensive)
+                        mainWindow = findMainWindowSimple(windows)
+                        if let mainWindowId = mainWindow?.cgWindowId {
+                            mainWindowCache[pid] = mainWindowId
+                            PerfLogger.log("Main window cache MISS for pid \(pid) - cached \(mainWindowId)")
+                        }
+                    }
+                    
+                    if let mainWindow = mainWindow {
+                        windows.forEach { window in
+                            if window.cgWindowId != mainWindow.cgWindowId {
+                                window.shouldShowTheUser = false
+                            }
                         }
                     }
                 }
             }
         }
+        
+        let visibleCount = list.filter { $0.shouldShowTheUser }.count
+        PerfLogger.log("refreshWhichWindowsToShowTheUser: showing \(visibleCount) of \(list.count) windows (onePerApp: \(shouldShowOnePerApp))")
     }
 
     private static func refreshIfWindowShouldBeShownToTheUser(_ window: Window) {
@@ -174,6 +284,22 @@ class Windows {
                 (Preferences.showTabsAsWindows || !window.isTabbed))
     }
 
+    /// Fast version of findMainWindow that avoids expensive AX calls
+    /// Uses simple heuristics: focused window > most recently focused > first visible
+    static func findMainWindowSimple(_ windows: [Window]) -> Window? {
+        let visibleWindows = windows.filter { $0.shouldShowTheUser }
+        if visibleWindows.isEmpty { return nil }
+        
+        // Prefer the focused window
+        if let focusedWindowId = windows.first?.application.focusedWindow?.cgWindowId,
+           let focusedWindow = visibleWindows.first(where: { $0.cgWindowId == focusedWindowId }) {
+            return focusedWindow
+        }
+        
+        // Prefer most recently focused window (lowest lastFocusOrder)
+        return visibleWindows.min(by: { $0.lastFocusOrder < $1.lastFocusOrder })
+    }
+    
     /// Selects the most appropriate main window from a given list of windows.
     ///
     /// The selection criteria are as follows:
