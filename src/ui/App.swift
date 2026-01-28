@@ -206,7 +206,7 @@ class App: AppCenterApplication {
     private let externalEventQueue = DispatchQueue(label: "com.lwouis.alt-tab-macos.externalEventQueue")
     
     func refreshOpenUi(_ windowsToScreenshot: [Window], _ source: RefreshCausedBy, windowRemoved: Bool = false) {
-        PerfLogger.log("===== refreshOpenUi called, source: \(source) =====")
+        Logger.perf("refreshOpenUi called, source: \(source)")
         Windows.refreshThumbnailsAsync(windowsToScreenshot, source, windowRemoved: windowRemoved)
         guard appIsBeingUsed else { return }
         
@@ -222,7 +222,7 @@ class App: AppCenterApplication {
                 if let lastRefresh = self.lastExternalEventRefreshTime {
                     let timeSinceLastRefresh = Double(now.uptimeNanoseconds - lastRefresh.uptimeNanoseconds) / 1_000_000_000
                     if timeSinceLastRefresh < self.externalEventRefreshThrottle {
-                        PerfLogger.log("refreshOpenUi: THROTTLED updatesBeforeShowing (last \(String(format: "%.0f", timeSinceLastRefresh * 1000))ms ago)")
+                        Logger.perf("refreshOpenUi: THROTTLED updatesBeforeShowing (last \(String(format: "%.0f", timeSinceLastRefresh * 1000))ms ago)")
                         return
                     }
                 }
@@ -231,7 +231,7 @@ class App: AppCenterApplication {
                 // Execute on main thread
                 DispatchQueue.main.async {
                     guard self.appIsBeingUsed else { return }
-                    PerfLogger.log("refreshOpenUi: calling updatesBeforeShowing due to external event")
+                    Logger.perf("refreshOpenUi: calling updatesBeforeShowing due to external event")
                     if !Windows.updatesBeforeShowing() { self.hideUi(); return }
                     guard self.appIsBeingUsed else { return }
                     Windows.updateSelectedWindow()
@@ -263,10 +263,10 @@ class App: AppCenterApplication {
     func showUiOrCycleSelection(_ shortcutIndex: Int, _ forceDoNothingOnRelease_: Bool) {
         forceDoNothingOnRelease = forceDoNothingOnRelease_
         Logger.debug { "isFirstSummon:\(self.isFirstSummon) currentShortcutIndex:\(self.shortcutIndex) newShortcutIndex:\(shortcutIndex)" }
-        PerfLogger.log("showUiOrCycleSelection called with shortcutIndex:\(shortcutIndex), current:\(self.shortcutIndex)")
+        Logger.perf("showUiOrCycleSelection called with shortcutIndex:\(shortcutIndex), current:\(self.shortcutIndex)")
         App.app.appIsBeingUsed = true
         if isFirstSummon || shortcutIndex != self.shortcutIndex {
-            PerfLogger.log("Switching to shortcut index \(shortcutIndex) (was \(self.shortcutIndex))")
+            Logger.perf("Switching to shortcut index \(shortcutIndex) (was \(self.shortcutIndex))")
             NSScreen.updatePreferred()
             if isVeryFirstSummon {
                 Windows.sortByLevel()

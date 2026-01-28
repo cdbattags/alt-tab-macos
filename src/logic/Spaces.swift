@@ -20,47 +20,40 @@ class Spaces {
     static func windowsInSpaces(_ spaceIds: [CGSSpaceID], _ includeInvisible: Bool = true) -> [CGWindowID] {
         let cacheKey = "\(spaceIds)_\(includeInvisible)"
         if let cached = windowsInSpacesCache[cacheKey] {
-            PerfLogger.log("windowsInSpaces: cache HIT for \(spaceIds.count) spaces")
+            Logger.cacheHit("windowsInSpaces", details: "\(spaceIds.count) spaces")
             return cached
         }
         
-        PerfLogger.log("windowsInSpaces: cache MISS, calling CGSCopyWindowsWithOptionsAndTags...")
-        let start = DispatchTime.now()
-        
-        var set_tags = ([] as CGSCopyWindowsTags).rawValue
-        var clear_tags = ([] as CGSCopyWindowsTags).rawValue
-        var options = [.screenSaverLevel1000] as CGSCopyWindowsOptions
-        if includeInvisible {
-            options = [options, .invisible1, .invisible2]
+        return Logger.measure("windowsInSpaces: CGSCopyWindowsWithOptionsAndTags") {
+            var set_tags = ([] as CGSCopyWindowsTags).rawValue
+            var clear_tags = ([] as CGSCopyWindowsTags).rawValue
+            var options = [.screenSaverLevel1000] as CGSCopyWindowsOptions
+            if includeInvisible {
+                options = [options, .invisible1, .invisible2]
+            }
+            let result = CGSCopyWindowsWithOptionsAndTags(CGS_CONNECTION, 0, spaceIds as CFArray, options.rawValue, &set_tags, &clear_tags) as! [CGWindowID]
+            
+            windowsInSpacesCache[cacheKey] = result
+            Logger.perf("windowsInSpaces: returned \(result.count) windows")
+            return result
         }
-        let result = CGSCopyWindowsWithOptionsAndTags(CGS_CONNECTION, 0, spaceIds as CFArray, options.rawValue, &set_tags, &clear_tags) as! [CGWindowID]
-        
-        let elapsed = Double(DispatchTime.now().uptimeNanoseconds - start.uptimeNanoseconds) / 1_000_000
-        PerfLogger.log("windowsInSpaces: CGSCopyWindowsWithOptionsAndTags took \(String(format: "%.2f", elapsed))ms, returned \(result.count) windows")
-        
-        windowsInSpacesCache[cacheKey] = result
-        return result
     }
 
     static func refresh() {
-        let start = DispatchTime.now()
         let now = DispatchTime.now()
         let timeSinceLastRefresh = Double(now.uptimeNanoseconds - lastRefreshTime.uptimeNanoseconds) / 1_000_000_000
         
         if timeSinceLastRefresh < refreshThrottle && !idsAndIndexes.isEmpty {
-            PerfLogger.log("Spaces.refresh: THROTTLED (last refresh \(String(format: "%.2f", timeSinceLastRefresh * 1000))ms ago)")
+            Logger.perf("Spaces.refresh: THROTTLED (last refresh \(String(format: "%.2f", timeSinceLastRefresh * 1000))ms ago)")
             return
         }
         
-        PerfLogger.log("Spaces.refresh: RUNNING (last refresh \(String(format: "%.2f", timeSinceLastRefresh * 1000))ms ago...)")
-        
-        lastRefreshTime = now
-        windowsInSpacesCache.removeAll()
-        refreshAllIdsAndIndexes()
-        updateCurrentSpace()
-        
-        let elapsed = Double(DispatchTime.now().uptimeNanoseconds - start.uptimeNanoseconds) / 1_000_000
-        PerfLogger.log("Spaces.refresh: completed in \(String(format: "%.2f", elapsed))ms")
+        Logger.measure("Spaces.refresh (last refresh \(String(format: "%.2f", timeSinceLastRefresh * 1000))ms ago)") {
+            lastRefreshTime = now
+            windowsInSpacesCache.removeAll()
+            refreshAllIdsAndIndexes()
+            updateCurrentSpace()
+        }
     }
 
     private static func updateCurrentSpace() {
@@ -75,9 +68,6 @@ class Spaces {
     }
 
     private static func refreshAllIdsAndIndexes() -> Void {
-        PerfLogger.log("refreshAllIdsAndIndexes: calling CGSCopyManagedDisplaySpaces...")
-        let start = DispatchTime.now()
-        
         idsAndIndexes.removeAll()
         screenSpacesMap.removeAll()
         visibleSpaces.removeAll()
@@ -96,9 +86,7 @@ class Spaces {
             }
             visibleSpaces.append((screen["Current Space"] as! NSDictionary)["id64"] as! CGSSpaceID)
         }
-        
-        let elapsed = Double(DispatchTime.now().uptimeNanoseconds - start.uptimeNanoseconds) / 1_000_000
-        PerfLogger.log("refreshAllIdsAndIndexes: CGSCopyManagedDisplaySpaces took \(String(format: "%.2f", elapsed))ms, found \(idsAndIndexes.count) spaces")
+        Logger.perf("refreshAllIdsAndIndexes: found \(idsAndIndexes.count) spaces")
     }
 }
 

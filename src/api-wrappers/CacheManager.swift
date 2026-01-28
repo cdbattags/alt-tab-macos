@@ -23,14 +23,14 @@ class CacheManager {
     static func uiDidShow() {
         isUiActive = true
         cancelExpirationTimer()
-        PerfLogger.log("CacheManager: UI shown, cache expiration cancelled")
+        Logger.perf("CacheManager: UI shown, cache expiration cancelled")
     }
     
     /// Call when UI is hidden - schedules cache expiration
     static func uiDidHide() {
         isUiActive = false
         scheduleExpirationTimer()
-        PerfLogger.log("CacheManager: UI hidden, cache expiration scheduled for \(cacheExpirationSeconds)s")
+        Logger.perf("CacheManager: UI hidden, cache expiration scheduled for \(cacheExpirationSeconds)s")
     }
     
     /// Manually clear all caches immediately
@@ -38,7 +38,7 @@ class CacheManager {
         clearLayoutCaches()
         clearScreenCaches()
         clearPreviewCaches()
-        PerfLogger.log("CacheManager: All caches cleared manually")
+        Logger.perf("CacheManager: All caches cleared manually")
     }
     
     // MARK: - Private Implementation
@@ -52,7 +52,7 @@ class CacheManager {
         ) { _ in
             if !isUiActive {
                 clearAllCaches()
-                PerfLogger.log("CacheManager: Idle timeout - caches expired and freed")
+                Logger.perf("CacheManager: Idle timeout - caches expired and freed")
             }
         }
     }
